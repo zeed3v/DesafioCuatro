@@ -14,6 +14,8 @@ namespace ProyectoFinal.Controllers
         {
             return VentaHandler.GetVentas();
         }
+
+        
         [HttpPost(Name = "CargarVentas")]
         public List<PostVenta> CargarVentas()
         {

@@ -29,7 +29,7 @@ namespace ProyectoFinal.Repository
 
                                 venta.Id = Convert.ToInt32(dataReader["Id"]);
                                 venta.Comentarios = dataReader["Comentarios"].ToString();
-                                
+
                                 resultados.Add(venta);
                             }
                         }
@@ -45,180 +45,108 @@ namespace ProyectoFinal.Repository
             throw new NotImplementedException();
         }
 
-        public static List<PostVenta> CargarVentas(List<PostVenta> DetalleVenta)
+        public static void CargarVenta(List<Producto> productos, int IdUsuario)
         {
-            DataTable dtProductos = new DataTable();
-            DataTable dtUsuarios = new DataTable();
-            DataRow[] singlequery;
-            DataTable dtIdVenta = new DataTable();
-            string query = string.Empty;
-            int registros_insertados = 0;
-            int stock_producto = 0;
-            int cont = -1;
+            PostVenta venta = new PostVenta();
 
-            //Buscamos todos los ID de Producto y Stock para no hacer un select por cada item de venta
-            using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
+            SqlConnection sqlConnection = new SqlConnection(ConnectionString);
+            SqlCommand sqlCommand = new SqlCommand();
+            sqlCommand.Connection = sqlConnection;
+            sqlCommand.Connection.Open();
+            sqlCommand.CommandText = @"INSERT INTO Venta
+                                ([Comentarios]
+                                ,[IdUsuario])
+                                VALUES
+                                (@Comentarios,
+                                    @IdUsuario)";
+
+            sqlCommand.Parameters.AddWithValue("@Comentarios", "");
+            sqlCommand.Parameters.AddWithValue("@IdUsuario", IdUsuario);
+
+            sqlCommand.ExecuteNonQuery(); //Se ejecuta realmente el INSERT INTO
+            venta.IdUsuario = IdUsuario;
+
+            foreach (Producto producto in productos)
             {
-                SqlDataAdapter SqlAdapter = new SqlDataAdapter("select Id, Stock from Producto", sqlConnection);
-                sqlConnection.Open();
-                SqlAdapter.Fill(dtProductos);
-                sqlConnection.Close();
+                sqlCommand.CommandText = @"INSERT INTO ProductoVendido
+                                ([Stock]
+                                ,[IdProducto]
+                                ,[IdVenta])
+                                VALUES
+                                (@Stock,
+                                @IdProducto,
+                                @IdVenta)";
+
+                sqlCommand.Parameters.AddWithValue("@Stock", producto.Stock);
+                sqlCommand.Parameters.AddWithValue("@IdProducto", producto.Id);
+                sqlCommand.Parameters.AddWithValue("@IdVenta", venta.Id);
+
+                sqlCommand.ExecuteNonQuery(); //Se ejecuta realmente el INSERT INTO
+                sqlCommand.Parameters.Clear();
+
+                sqlCommand.CommandText = @" UPDATE Producto
+                                                SET 
+                                                Stock = Stock - @Stock
+                                                WHERE id = @IdProducto";
+
+                sqlCommand.Parameters.AddWithValue("@Stock", producto.Stock);
+                sqlCommand.Parameters.AddWithValue("@IdProducto", producto.Id);
+
+                sqlCommand.ExecuteNonQuery(); //Se ejecuta realmente el INSERT INTO
+                sqlCommand.Parameters.Clear();
             }
-            //Buscamos todos los ID de Usuario para no hacer un select por cada item de venta
-            using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
-            {
-                SqlDataAdapter SqlAdapter = new SqlDataAdapter("SELECT Id FROM Usuario", sqlConnection);
-                sqlConnection.Open();
-                SqlAdapter.Fill(dtUsuarios);
-                sqlConnection.Close();
-            }
-            //Se recorren los datos de venta recibidos por la API
-            foreach (var line in DetalleVenta)
-            {
-                cont++;
-
-                //Validar que el ID de Producto exista y que haya stock suficiente para registrar la venta
-                query = "Id = " + line.IdProducto.ToString();
-                singlequery = dtProductos.Select(query);
-
-                if (singlequery.Length == 0)
-                {
-                    DetalleVenta[cont].Status = "Venta no Registrada - No existe el producto";
-                    continue;
-                }
-                else
-                {
-                    if (line.Stock > Convert.ToInt32(singlequery[0].ItemArray[1]))
-                    {
-                        DetalleVenta[cont].Status = "Venta no Registrada - No hay Stock suficiente del producto";
-                        continue;
-                    }
-                    else
-                    {
-                        stock_producto = Convert.ToInt32(singlequery[0].ItemArray[1]) - line.Stock;
-                    }
-                }
-
-                //Validar que el ID de Usuario exista
-                query = "Id = " + line.IdUsuario.ToString();
-                singlequery = dtUsuarios.Select(query);
-
-                if (singlequery.Length == 0)
-                {
-                    DetalleVenta[cont].Status = "Venta no Registrada - No existe el Usuario";
-                    continue;
-                }
-
-                //Insertar en la tabla Venta (Id automatico y Comentarios: DateTime + IdUsuario vendedor)
-                try
-                {
-                    using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
-                    {
-                        string QueryUpdate = "INSERT INTO Venta ( Comentarios ) VALUES ( @Comentarios )";
-
-                        //Parámetros
-                        SqlParameter param_Comentarios = new SqlParameter("Comentarios", SqlDbType.VarChar) { Value = "Venta Registrada: " + DateTime.Now };
-
-                        sqlConnection.Open();
-                        using (SqlCommand sqlCommand = new SqlCommand(QueryUpdate, sqlConnection))
-                        {
-                            sqlCommand.Parameters.Add(param_Comentarios);
-                            registros_insertados = sqlCommand.ExecuteNonQuery();
-                        }
-                        if (registros_insertados == 1)
-                        {
-                            //Obtener IDVenta generado
-                            using (SqlConnection sqlConnection_id = new SqlConnection(ConnectionString))
-                            {
-                                SqlDataAdapter SqlAdapter = new SqlDataAdapter("select max(Id) from Venta", sqlConnection);
-                                SqlAdapter.Fill(dtIdVenta);
-                            }
-
-                            DetalleVenta[cont].Status = "Venta Registrada - Id Venta: " + dtIdVenta.Rows[0].ItemArray[0] + " - IdUsuario: " + line.IdUsuario;
-                        }
-                        else
-                        {
-                            DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta";
-                        }
-                        sqlConnection.Close();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta: " + ex.Message;
-                }
-
-                //Insertar en la tabla Producto vendido
-                try
-                {
-                    using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
-                    {
-                        string QueryInsert = "INSERT INTO ProductoVendido ( Stock, IdProducto, IdVenta ) VALUES ( @Stock, @IdProducto, @IdVenta )";
-
-                        //Parámetros
-                        SqlParameter param_Stock = new SqlParameter("Stock", SqlDbType.Int) { Value = line.Stock };
-                        SqlParameter param_IdProducto = new SqlParameter("IdProducto", SqlDbType.Int) { Value = line.IdProducto };
-                        SqlParameter param_IdVenta = new SqlParameter("IdVenta", SqlDbType.Int) { Value = dtIdVenta.Rows[0].ItemArray[0] };
-
-                        sqlConnection.Open();
-                        using (SqlCommand sqlCommand = new SqlCommand(QueryInsert, sqlConnection))
-                        {
-                            sqlCommand.Parameters.Add(param_Stock);
-                            sqlCommand.Parameters.Add(param_IdProducto);
-                            sqlCommand.Parameters.Add(param_IdVenta);
-                            registros_insertados = sqlCommand.ExecuteNonQuery();
-                            sqlCommand.Parameters.Clear();
-                        }
-                        if (registros_insertados == 1)
-                        {
-                            DetalleVenta[cont].Status = "Venta Registrada - Id Venta: " + dtIdVenta.Rows[0].ItemArray[0] + " - IdUsuario: " + line.IdUsuario;
-                        }
-                        else
-                        {
-                            DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta";
-                        }
-                        sqlConnection.Close();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta: " + ex.Message;
-                }
-
-                //Modificar la tabla producto (Descontar stock))
-                try
-                {
-                    using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
-                    {
-                        string QueryUpdate = "UPDATE Producto SET Stock = " + stock_producto + " WHERE Id = @IdProducto";
-
-                        //Parámetros
-                        SqlParameter param_IdProducto = new SqlParameter("IdProducto", SqlDbType.Int) { Value = line.IdProducto };
-
-                        sqlConnection.Open();
-                        using (SqlCommand sqlCommand = new SqlCommand(QueryUpdate, sqlConnection))
-                        {
-                            sqlCommand.Parameters.Add(param_IdProducto);
-                            registros_insertados = sqlCommand.ExecuteNonQuery();
-                            sqlCommand.Parameters.Clear();
-                        }
-                        if (registros_insertados == 1)
-                        {
-                            DetalleVenta[cont].Status = "Venta Registrada - Id Venta: " + dtIdVenta.Rows[0].ItemArray[0] + " - IdUsuario: " + line.IdUsuario;
-                        }
-                        else
-                        {
-                            DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta";
-                        }
-                        sqlConnection.Close();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DetalleVenta[cont].Status = "Venta No Registrada - Error al ingresar venta: " + ex.Message;
-                }
-            }
-            return DetalleVenta;
+            sqlCommand.Connection.Close();
         }
+
+        //public static bool CargaVenta(List<Producto> productos, int IdUsuario)
+        //{
+        //    bool resultado = false;
+        //    PostVenta venta = new PostVenta();
+        //    using (SqlConnection sqlConnection = new SqlConnection(ConnectionString))
+        //    {
+        //        string queryInsert = "INSERT INTO Venta " +
+        //            "([Comentarios], [IdUsuario]) VALUES " +
+        //            "(@comentarios, @idUsuario) ";
+
+        //        SqlParameter comentarios = new SqlParameter("@comentarios", SqlDbType.VarChar) { Value = venta.Comentarios };
+        //        SqlParameter idUsuario = new SqlParameter("@idUsuario", SqlDbType.Int) { Value = venta.IdUsuario };
+
+        //        sqlConnection.Open();
+
+        //        using (SqlCommand sqlCommand = new SqlCommand(queryInsert, sqlConnection))
+        //        {
+        //            sqlCommand.CommandText = "INSERT INTO ProductoVendido " +
+        //            "([Stock], [IdProducto], [IdVenta]) VALUES " +
+        //            "(@stock, @idProducto, @idVenta) ";
+
+        //            SqlParameter stock = new SqlParameter("@stock", SqlDbType.Int) { Value = productos.Stock };
+        //            SqlParameter idProducto = new SqlParameter("@idProducto", SqlDbType.Int) { Value = venta.Id };
+        //            SqlParameter idVenta = new SqlParameter("@idVenta", SqlDbType.Int) { Value = venta.IdVenta };
+
+
+        //            using (SqlCommand sqlCommand = new SqlCommand(queryInsert, sqlConnection))
+        //            {
+        //                sqlCommand.Parameters.Add(Stock);
+        //                sqlCommand.Parameters.Add(Id);
+        //                sqlCommand.Parameters.Add(precioVentaParameter);
+        //                sqlCommand.Parameters.Add(stockParameter);
+        //                sqlCommand.Parameters.Add(idUsuarioParameter);
+
+        //                int numberOfRows = sqlCommand.ExecuteNonQuery(); // Se ejecuta la sentencia sql
+
+        //                if (numberOfRows > 0)
+        //                {
+        //                    resultado = true;
+        //                }
+        //            }
+        //        }
+
+        //        sqlConnection.Close();
+        //    }
+
+        //    return resultado;
+        //}
+            
     }
+    
 }

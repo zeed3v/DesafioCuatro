@@ -10,12 +10,16 @@ namespace ProyectoFinal.Controllers
     public class UsuarioController : ControllerBase
     {
         [HttpGet(Name = "ConseguirUsuarios")]
-
         public List<Usuario> GetUsuarios()
         {
             return UsuarioHandler.GetUsuarios();
         }
 
+        [HttpGet("{nombreUsuario}")]
+        public List<Usuario> TraerUsuarioNombre(string nombreUsuario)
+        {
+            return UsuarioHandler.TraerUsuarioNombre(nombreUsuario);
+        }
 
         [HttpDelete]
         public bool EliminarUsuario([FromBody] int id)
